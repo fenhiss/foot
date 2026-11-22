@@ -22,7 +22,6 @@ import subprocess
 import tempfile
 import wave
 
-from piper import PiperVoice, SynthesisConfig
 
 # Названия команд по-русски (латиницу русский голос читает плохо)
 TEAMS = {
@@ -84,9 +83,9 @@ PHRASES = {
         "Отбили! Голом не стал этот удар.",
     ]),
     "goal": ("excited", [
-        "Го-о-ол! Какой удар! Мяч в сетке!",
+        "Гол! Какой удар! Мяч в сетке!",
         "Гол! Гол! Нортсайд забивает!",
-        "Да-а-а! Это гол! Стадион взрывается!",
+        "Да! Это гол! Стадион взрывается!",
         "Невероятно! Мяч в воротах!",
         "Вот это класс! Гол!",
     ]),
@@ -148,6 +147,7 @@ def build_items():
 
 
 def synth(voice, text, st):
+    from piper import SynthesisConfig
     cfg = SynthesisConfig(length_scale=st["length"], noise_scale=st["noise"], noise_w_scale=st["noise_w"])
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -194,6 +194,7 @@ def main():
     ap.add_argument("--wav-dir", help="дополнительно сохранить mp3-файлы сюда (для прослушивания)")
     args = ap.parse_args()
 
+    from piper import PiperVoice
     voice = PiperVoice.load(args.model)
     pack = {}
     items = build_items()
