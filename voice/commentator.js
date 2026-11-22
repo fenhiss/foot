@@ -157,7 +157,7 @@
       return;
     }
     var src = ctx.createBufferSource(); src.buffer = buf;
-    src.playbackRate.value = 0.98 + Math.random() * 0.05; // микро-вариативность, чтобы не звучало «по шаблону»
+    src.playbackRate.value = 0.98 + Math.random() * 0.02; // микро-вариативность (только вниз, чтобы голос не становился выше)
     src.connect(voiceBus);
     ramp(crowdDuck.gain, 0.45, 0.15);
     current = src; currentPri = pri;

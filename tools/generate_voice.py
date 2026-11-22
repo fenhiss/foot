@@ -11,7 +11,7 @@
 
 Запуск:
     pip install piper-tts
-    python3 tools/generate_voice.py --model path/to/ru_RU-dmitri-medium.onnx
+    python3 tools/generate_voice.py --model path/to/ru_RU-ruslan-medium.onnx
 """
 import argparse
 import base64
@@ -35,9 +35,12 @@ NUM = ["ноль", "один", "два", "три", "четыре", "пять", "
 # Стили подачи: скорость (length_scale < 1 — быстрее), выразительность,
 # темп и подъём тона после синтеза.
 STYLES = {
-    "calm":    dict(length=0.92, noise=0.70, noise_w=0.85, tempo=1.00, pitch=1.00, gain=0.0),
-    "lively":  dict(length=0.86, noise=0.75, noise_w=0.90, tempo=1.04, pitch=1.03, gain=1.0),
-    "excited": dict(length=0.80, noise=0.80, noise_w=0.95, tempo=1.08, pitch=1.07, gain=2.0),
+    # Голос ruslan от природы говорит быстро, поэтому length_scale ближе к 1.
+    # Тон поднимается совсем немного и с сохранением форманты, чтобы голос
+    # оставался низким и мужским даже в эмоциональных репликах.
+    "calm":    dict(length=1.00, noise=0.667, noise_w=0.80, tempo=1.00, pitch=1.00, gain=0.0),
+    "lively":  dict(length=0.95, noise=0.72,  noise_w=0.85, tempo=1.02, pitch=1.00, gain=1.0),
+    "excited": dict(length=0.88, noise=0.78,  noise_w=0.90, tempo=1.05, pitch=1.03, gain=2.0),
 }
 
 # id-группы -> (стиль, [варианты])
@@ -152,19 +155,25 @@ def synth(voice, text, st):
     return buf.getvalue()
 
 
-def process(wav_bytes, st, rate):
-    # Подъём тона через asetrate + компенсация темпа, лёгкий «эфирный» EQ и компрессия.
-    p = st["pitch"]
-    tempo = st["tempo"] / p
-    af = ",".join([
-        f"asetrate={int(rate * p)}", f"aresample={rate}", f"atempo={tempo:.4f}",
-        "highpass=f=90", "equalizer=f=3000:t=q:w=1.2:g=3", "equalizer=f=250:t=q:w=1:g=-2",
-        "acompressor=threshold=-20dB:ratio=3:attack=5:release=80:makeup=4",
+def process(wav_bytes, st):
+    # Тёплый «радийный» мужской тембр: плотный низ (грудь), мягкая середина,
+    # без резких верхов; эмоциональный подъём тона — через rubberband с сохранением форманты.
+    chain = []
+    if st["pitch"] != 1.0 or st["tempo"] != 1.0:
+        chain.append(f"rubberband=pitch={st['pitch']}:tempo={st['tempo']}:formant=preserved:pitchq=quality")
+    chain += [
+        "highpass=f=70",
+        "lowshelf=f=150:g=3.5",
+        "equalizer=f=400:t=q:w=1.2:g=-1.5",
+        "equalizer=f=2500:t=q:w=1.2:g=1.5",
+        "highshelf=f=7000:g=-3",
+        "acompressor=threshold=-20dB:ratio=3:attack=8:release=120:makeup=4",
         f"volume={st['gain']}dB",
         "silenceremove=start_periods=1:start_threshold=-45dB",
         "areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse",
         "alimiter=limit=0.95",
-    ])
+    ]
+    af = ",".join(chain)
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(wav_bytes)
         src = f.name
@@ -186,11 +195,10 @@ def main():
     args = ap.parse_args()
 
     voice = PiperVoice.load(args.model)
-    rate = voice.config.sample_rate
     pack = {}
     items = build_items()
     for n, (cid, style, text) in enumerate(items, 1):
-        mp3 = process(synth(voice, text, STYLES[style]), STYLES[style], rate)
+        mp3 = process(synth(voice, text, STYLES[style]), STYLES[style])
         pack[cid] = base64.b64encode(mp3).decode()
         if args.wav_dir:
             os.makedirs(args.wav_dir, exist_ok=True)

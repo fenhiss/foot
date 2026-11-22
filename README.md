@@ -8,7 +8,7 @@ Football Career: браузерный прототип футбольной ка
 стартовый свисток, атаки, выход в штрафную, удары, отборы, промахи, голы со счётом,
 последние минуты и финальный результат. Фоном шумят трибуны: на гол они ревут, на промах вздыхают.
 
-- **Голос:** [Piper TTS](https://github.com/rhasspy/piper), открытый нейросетевой синтез речи, русский голос `ru_RU-dmitri-medium`.
+- **Голос:** [Piper TTS](https://github.com/rhasspy/piper), открытый нейросетевой синтез речи, русский мужской голос `ru_RU-ruslan-medium` (самый низкий из русских голосов Piper, с тёплой «радийной» обработкой).
   Фразы записаны заранее, поэтому играются сразу, без задержек и интернета.
 - **Без бормотания:** в каждый момент звучит только одна фраза. Важное (гол, финал) перебивает второстепенное.
   Повторы ограничены паузами, а устаревшие фразы пропускаются.
@@ -24,10 +24,10 @@ Football Career: браузерный прототип футбольной ка
 
 ```bash
 pip install piper-tts            # нужен также ffmpeg
-curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx
-curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx.json
-python3 tools/generate_voice.py --model ru_RU-dmitri-medium.onnx --wav-dir /tmp/clips
+curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/ruslan/medium/ru_RU-ruslan-medium.onnx
+curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/ruslan/medium/ru_RU-ruslan-medium.onnx.json
+python3 tools/generate_voice.py --model ru_RU-ruslan-medium.onnx --wav-dir /tmp/clips
 ```
 
-Другие русские голоса Piper: `denis`, `ruslan`, `irina` (женский). Чтобы попробовать другой, замените `dmitri` в путях.
+Другие русские голоса Piper: `denis`, `dmitri` (выше), `irina` (женский). Чтобы попробовать другой, замените `ruslan` в путях.
 С `--wav-dir` все фразы дополнительно сохраняются в mp3, их удобно прослушать.
