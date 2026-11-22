@@ -21,7 +21,16 @@ import torch
 sys.path.insert(0, os.path.dirname(__file__))
 from generate_voice_qwen import REFS, similarity  # noqa: E402
 
-EXCITED = {"excited", "shouting", "shouts", "happy", "energetic", "enthusiastic", "cheering", "joyful", "loud"}
+REFS = dict(REFS)
+REFS["gruff"] = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice_ref", "gruff.flac"),
+                 "Видишь? От борца не убегают. Борца встречают. Он устал. Теперь твоё время. Жди, когда он нырнёт.")
+
+EXCITED = {"excited", "shouting", "shouts", "happy", "energetic", "enthusiastic", "cheering", "joyful", "loud",
+           "tense", "determined", "intense", "urgent"}
+CALM = {"calm", "neutral", "serious", "whispers", "whispering", "sad", "soft", "relaxed", "warm", "warmly",
+        "curious", "deadpan", "sarcastic", "thoughtful"}
+GRUFF = {"gruff", "rough", "coach"}
+PAUSES = {"pause": 0.6, "short pause": 0.35, "long pause": 1.3}
 
 
 def segments(text):
@@ -31,11 +40,15 @@ def segments(text):
         m = re.fullmatch(r"\[([^\]]+)\]", part.strip())
         if m:
             tag = m.group(1).strip().lower()
-            if tag in EXCITED:
+            if tag in PAUSES:
+                out.append(("pause", PAUSES[tag]))
+            elif tag in EXCITED:
                 style = "excited"
-            elif tag in {"calm", "neutral", "serious", "whispers", "sad", "soft", "relaxed", "warm"}:
+            elif tag in GRUFF:
+                style = "gruff"
+            elif tag in CALM:
                 style = "calm"
-            continue
+            continue  # прочие теги ([laughs] и т.п.) пропускаем
         # Разбиваем на предложения, короткие склеиваем до ~220 символов
         sents = re.findall(r"[^.!?…]+[.!?…]*", part.replace("\n", " "))
         buf = ""
@@ -69,6 +82,9 @@ def main():
     segs = segments(open(args.input, encoding="utf-8").read())
     pieces, sr = [], 24000
     for i, (style, text) in enumerate(segs, 1):
+        if style == "pause":
+            pieces.append(np.zeros(int(sr * text), np.float32))
+            continue
         best = None
         for _ in range(args.tries):
             wavs, sr = tts.generate_voice_clone(text=text, language="Russian", voice_clone_prompt=prompts[style])
@@ -87,6 +103,7 @@ def main():
         score, wav, heard = best
         print(f"{'OK' if score >= 0.8 else '??'} [{i}/{len(segs)}] ({style}, {score:.2f}) {text}  =>  {heard}", flush=True)
         pieces += [wav, np.zeros(int(sr * args.pause), np.float32)]
+        np.save(args.output + ".partial.npy", np.concatenate(pieces))
 
     audio = np.concatenate(pieces)
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(sr), "-ac", "1", "-i", "-",
