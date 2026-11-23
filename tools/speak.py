@@ -2,8 +2,9 @@
 """
 Озвучка произвольного текста голосом комментатора (Qwen3-TTS, клонирование из tools/voice_ref).
 
-Голос по умолчанию (--voice energetic): энергичный рассказчик в стиле шортсов/YouTube —
-низкий голос с живыми, широкими интонациями (образец voice_ref/excited.flac) + ускорение темпа.
+Голос по умолчанию (--voice casual): лёгкий, расслабленный разговорный рассказчик для шортсов —
+живые широкие интонации, «с улыбкой» (синтетический голос из Qwen3-TTS VoiceDesign, voice_ref/casual.flac),
+студийное звучание (эквалайзер + «воздух»). --voice energetic — низкий напористый вариант.
 --voice classic — прежний спокойный низкий голос.
 
 Понимает теги в стиле ElevenLabs v3, тег действует до следующего:
@@ -28,9 +29,27 @@ from generate_voice_qwen import REFS, similarity  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REFS = dict(REFS)
+REFS["casual"] = (os.path.join(HERE, "voice_ref", "casual.flac"),
+                  "Вы выбрали — ещё один бой! А Артур написал: ещё один бой, и только потом в профессиональную лигу. "
+                  "Так и будет. Шутка. Просто похожи. Утром — алгебра. Вечером — лоу-кики. Что делаешь? Пиши в комментариях!")
 VOICES = {  # стиль из тегов -> образец голоса
+    "casual": {"base": "casual", "excited": "casual", "gruff": "gruff"},
     "energetic": {"base": "excited", "excited": "excited", "gruff": "gruff"},
     "classic": {"base": "calm", "excited": "excited", "gruff": "gruff"},
+}
+# Финальная обработка для каждого голоса: тон, темп, эквалайзер.
+# Для casual — эквалайзер подогнан по усреднённому спектру референса в манере «casual, relaxed, light»:
+# меньше гула в басу, больше разборчивой середины и «воздуха» сверху (эксайтер), как у студийной озвучки.
+CASUAL_EQ = "entry(63,-3.3);entry(80,-5.2);entry(100,-5.9);entry(125,-6.1);entry(160,-6.4);entry(200,-5.4);entry(250,-2.9);entry(315,-0.9);entry(400,1.7);entry(500,4.2);entry(630,3.0);entry(800,0.8);entry(1000,2.2);entry(1250,5.4);entry(1600,5.8);entry(2000,4.7);entry(2500,5.1);entry(3150,4.2);entry(4000,1.0);entry(5000,-1.2);entry(6300,-2.6);entry(8000,-2.4);entry(10000,5.0);entry(12500,7.0);entry(16000,7.0)"
+MASTER = {
+    "casual": ("rubberband=pitch=0.93:tempo=1.08:formant=preserved:pitchq=quality,aresample=44100,"
+               "aexciter=amount=1.5:drive=6:blend=0:freq=6000:ceil=16000,"
+               f"firequalizer=gain_entry='{CASUAL_EQ}',"
+               "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=3,loudnorm=I=-16:TP=-1.5:LRA=9"),
+    "energetic": ("rubberband=tempo=1.06:pitchq=quality:formant=preserved,highpass=f=60,equalizer=f=3000:t=q:w=1.2:g=2,"
+                  "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=4,loudnorm=I=-14:TP=-1.5:LRA=8"),
+    "classic": ("highpass=f=60,acompressor=threshold=-22dB:ratio=2.5:attack=10:release=150:makeup=3,"
+                "loudnorm=I=-16:TP=-1.5:LRA=11"),
 }
 REFS["gruff"] = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice_ref", "gruff.flac"),
                  "Видишь? От борца не убегают. Борца встречают. Он устал. Теперь твоё время. Жди, когда он нырнёт.")
@@ -80,8 +99,7 @@ def main():
     ap.add_argument("--whisper", default="Systran/faster-whisper-small")
     ap.add_argument("--tries", type=int, default=3)
     ap.add_argument("--pause", type=float, default=0.12, help="пауза между фразами, сек")
-    ap.add_argument("--voice", choices=list(VOICES), default="energetic")
-    ap.add_argument("--tempo", type=float, default=1.06, help="итоговое ускорение без изменения тона")
+    ap.add_argument("--voice", choices=list(VOICES), default="casual")
     args = ap.parse_args()
 
     from qwen_tts import Qwen3TTSModel
@@ -100,7 +118,8 @@ def main():
             continue
         best = None
         for _ in range(args.tries):
-            wavs, sr = tts.generate_voice_clone(text=text, language="Russian", voice_clone_prompt=prompts[style])
+            wavs, sr = tts.generate_voice_clone(text=text, language="Russian", voice_clone_prompt=prompts[style],
+                                                temperature=0.95)
             wav = np.asarray(wavs[0], dtype=np.float32)
             w16 = subprocess.run(["ffmpeg", "-v", "error", "-f", "f32le", "-ar", str(sr), "-ac", "1", "-i", "-",
                                   "-ar", "16000", "-f", "f32le", "-"], input=wav.tobytes(),
@@ -120,10 +139,7 @@ def main():
 
     audio = np.concatenate(pieces)
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(sr), "-ac", "1", "-i", "-",
-                    "-af", f"rubberband=tempo={args.tempo}:pitchq=quality:formant=preserved,"
-                           "highpass=f=60,equalizer=f=3000:t=q:w=1.2:g=2,"
-                           "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=4,"
-                           "loudnorm=I=-14:TP=-1.5:LRA=8",
+                    "-af", MASTER[args.voice],
                     "-ar", "44100", "-b:a", "128k", args.output], input=audio.tobytes(), check=True)
     print("OK ->", args.output, f"{len(audio) / sr:.1f} s")
 
