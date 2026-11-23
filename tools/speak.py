@@ -2,10 +2,15 @@
 """
 Озвучка произвольного текста голосом комментатора (Qwen3-TTS, клонирование из tools/voice_ref).
 
-Понимает теги в стиле ElevenLabs v3 в начале фразы или абзаца:
-  [excited] [shouting] [happy] [energetic]   -> эмоциональный образец голоса
-  [calm] [neutral] [serious] [whispers] ...  -> спокойный образец
-Тег действует до следующего тега. Прочие теги ([laughs], [sighs]...) вырезаются.
+Голос по умолчанию (--voice energetic): энергичный рассказчик в стиле шортсов/YouTube —
+низкий голос с живыми, широкими интонациями (образец voice_ref/excited.flac) + ускорение темпа.
+--voice classic — прежний спокойный низкий голос.
+
+Понимает теги в стиле ElevenLabs v3, тег действует до следующего:
+  [serious] [tense] [curious] [calm] ...    -> основной голос рассказчика
+  [gruff]                                   -> хриплый голос тренера (персонаж)
+  [pause] [short pause] [long pause]        -> паузы
+Прочие теги ([laughs], [sighs]...) вырезаются.
 
     python3 tools/speak.py input.txt out.mp3 --model <Base> --whisper <faster-whisper>
 """
@@ -21,20 +26,25 @@ import torch
 sys.path.insert(0, os.path.dirname(__file__))
 from generate_voice_qwen import REFS, similarity  # noqa: E402
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 REFS = dict(REFS)
+VOICES = {  # стиль из тегов -> образец голоса
+    "energetic": {"base": "excited", "excited": "excited", "gruff": "gruff"},
+    "classic": {"base": "calm", "excited": "excited", "gruff": "gruff"},
+}
 REFS["gruff"] = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice_ref", "gruff.flac"),
                  "Видишь? От борца не убегают. Борца встречают. Он устал. Теперь твоё время. Жди, когда он нырнёт.")
 
 EXCITED = {"excited", "shouting", "shouts", "happy", "energetic", "enthusiastic", "cheering", "joyful", "loud",
-           "tense", "determined", "intense", "urgent"}
+           "hyped", "triumphant"}
 CALM = {"calm", "neutral", "serious", "whispers", "whispering", "sad", "soft", "relaxed", "warm", "warmly",
-        "curious", "deadpan", "sarcastic", "thoughtful"}
+        "curious", "deadpan", "sarcastic", "thoughtful", "tense", "determined", "intense", "urgent"}
 GRUFF = {"gruff", "rough", "coach"}
-PAUSES = {"pause": 0.6, "short pause": 0.35, "long pause": 1.3}
+PAUSES = {"pause": 0.35, "short pause": 0.2, "long pause": 0.8}  # плотный темп, без провисаний
 
 
 def segments(text):
-    style = "calm"
+    style = "base"
     out = []
     for part in re.split(r"(\[[^\]]+\])", text):
         m = re.fullmatch(r"\[([^\]]+)\]", part.strip())
@@ -47,7 +57,7 @@ def segments(text):
             elif tag in GRUFF:
                 style = "gruff"
             elif tag in CALM:
-                style = "calm"
+                style = "base"
             continue  # прочие теги ([laughs] и т.п.) пропускаем
         # Разбиваем на предложения, короткие склеиваем до ~220 символов
         sents = re.findall(r"[^.!?…]+[.!?…]*", part.replace("\n", " "))
@@ -69,7 +79,9 @@ def main():
     ap.add_argument("--model", default="Qwen/Qwen3-TTS-12Hz-1.7B-Base")
     ap.add_argument("--whisper", default="Systran/faster-whisper-small")
     ap.add_argument("--tries", type=int, default=3)
-    ap.add_argument("--pause", type=float, default=0.35, help="пауза между фразами, сек")
+    ap.add_argument("--pause", type=float, default=0.12, help="пауза между фразами, сек")
+    ap.add_argument("--voice", choices=list(VOICES), default="energetic")
+    ap.add_argument("--tempo", type=float, default=1.06, help="итоговое ускорение без изменения тона")
     args = ap.parse_args()
 
     from qwen_tts import Qwen3TTSModel
@@ -77,7 +89,8 @@ def main():
     torch.set_num_threads(os.cpu_count() or 4)
     tts = Qwen3TTSModel.from_pretrained(args.model, device_map="cpu", dtype=torch.float32)
     asr = WhisperModel(args.whisper, device="cpu", compute_type="int8")
-    prompts = {k: tts.create_voice_clone_prompt(ref_audio=p, ref_text=t) for k, (p, t) in REFS.items()}
+    vmap = VOICES[args.voice]
+    prompts = {st: tts.create_voice_clone_prompt(ref_audio=REFS[r][0], ref_text=REFS[r][1]) for st, r in vmap.items()}
 
     segs = segments(open(args.input, encoding="utf-8").read())
     pieces, sr = [], 24000
@@ -107,8 +120,10 @@ def main():
 
     audio = np.concatenate(pieces)
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(sr), "-ac", "1", "-i", "-",
-                    "-af", "highpass=f=60,acompressor=threshold=-22dB:ratio=2.5:attack=10:release=150:makeup=3,"
-                           "loudnorm=I=-16:TP=-1.5:LRA=11",
+                    "-af", f"rubberband=tempo={args.tempo}:pitchq=quality:formant=preserved,"
+                           "highpass=f=60,equalizer=f=3000:t=q:w=1.2:g=2,"
+                           "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=4,"
+                           "loudnorm=I=-14:TP=-1.5:LRA=8",
                     "-ar", "44100", "-b:a", "128k", args.output], input=audio.tobytes(), check=True)
     print("OK ->", args.output, f"{len(audio) / sr:.1f} s")
 
