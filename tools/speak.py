@@ -4,7 +4,7 @@
 
 Голос по умолчанию (--voice casual): лёгкий, расслабленный разговорный рассказчик для шортсов —
 живые широкие интонации, «с улыбкой» (синтетический голос из Qwen3-TTS VoiceDesign, voice_ref/casual.flac),
-студийное звучание (эквалайзер + «воздух»). --voice energetic — низкий напористый вариант.
+минимальная обработка без искажений. --voice energetic — низкий напористый вариант.
 --voice classic — прежний спокойный низкий голос.
 
 Понимает теги в стиле ElevenLabs v3, тег действует до следующего:
@@ -42,10 +42,8 @@ VOICES = {  # стиль из тегов -> образец голоса
 # меньше гула в басу, больше разборчивой середины и «воздуха» сверху (эксайтер), как у студийной озвучки.
 CASUAL_EQ = "entry(63,-3.3);entry(80,-5.2);entry(100,-5.9);entry(125,-6.1);entry(160,-6.4);entry(200,-5.4);entry(250,-2.9);entry(315,-0.9);entry(400,1.7);entry(500,4.2);entry(630,3.0);entry(800,0.8);entry(1000,2.2);entry(1250,5.4);entry(1600,5.8);entry(2000,4.7);entry(2500,5.1);entry(3150,4.2);entry(4000,1.0);entry(5000,-1.2);entry(6300,-2.6);entry(8000,-2.4);entry(10000,5.0);entry(12500,7.0);entry(16000,7.0)"
 MASTER = {
-    "casual": ("rubberband=pitch=0.93:tempo=1.08:formant=preserved:pitchq=quality,aresample=44100,"
-               "aexciter=amount=1.5:drive=6:blend=0:freq=6000:ceil=16000,"
-               f"firequalizer=gain_entry='{CASUAL_EQ}',"
-               "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=3,loudnorm=I=-16:TP=-1.5:LRA=9"),
+    # Без сдвига тона, ускорения и эксайтера: они давали «металлический» и хриплый призвук.
+    "casual": "highpass=f=70,equalizer=f=2500:t=q:w=1.5:g=2,loudnorm=I=-16:TP=-1.5:LRA=11",
     "energetic": ("rubberband=tempo=1.06:pitchq=quality:formant=preserved,highpass=f=60,equalizer=f=3000:t=q:w=1.2:g=2,"
                   "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=4,loudnorm=I=-14:TP=-1.5:LRA=8"),
     "classic": ("highpass=f=60,acompressor=threshold=-22dB:ratio=2.5:attack=10:release=150:makeup=3,"
